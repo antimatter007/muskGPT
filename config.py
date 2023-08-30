@@ -19,7 +19,7 @@ CHAT_MODEL = 'gpt-3.5-turbo'
 TEXT_EMBEDDING_CHUNK_SIZE=300
 VECTOR_FIELD_NAME='content_vector'
 
-PREFIX = "skolodoc"
-INDEX_NAME = "skolo-index"
+PREFIX = "asp"
+INDEX_NAME = "asp-index"
 
 

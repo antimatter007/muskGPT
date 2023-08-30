@@ -7,13 +7,19 @@ import numpy as np
 from config import TEXT_EMBEDDING_CHUNK_SIZE, EMBEDDINGS_MODEL
 from database import load_vectors
 
-##Additional Line
+# Set OpenAI API key from the configuration file
 import config
 openai.api_key = config.DevelopmentConfig.OPENAI_KEY
 
-
 def get_col_average_from_list_of_lists(list_of_lists):
-    """Return the average of each column in a list of lists."""
+    """Calculate the average of each column in a list of lists.
+    
+    Args:
+        list_of_lists: A list of lists where each inner list is a column.
+        
+    Returns:
+        A list containing the average of each column.
+    """
     if len(list_of_lists) == 1:
         return list_of_lists[0]
     else:
@@ -21,11 +27,18 @@ def get_col_average_from_list_of_lists(list_of_lists):
         average_embedding = average(list_of_lists_array, axis=0)
         return average_embedding.tolist()
 
-# Create embeddings for a text using a tokenizer and an OpenAI engine
-
-
 def create_embeddings_for_text(text, tokenizer):
-    """Return a list of tuples (text_chunk, embedding) and an average embedding for a text."""
+    """Create embeddings for a given text using a tokenizer.
+    
+    Args:
+        text: The text to be embedded.
+        tokenizer: The tokenizer used for text preprocessing.
+        
+    Returns:
+        A tuple containing:
+        - List of tuples (text_chunk, embedding) for each chunk of the text.
+        - An average embedding for the entire text.
+    """
     token_chunks = list(chunks(text, TEXT_EMBEDDING_CHUNK_SIZE, tokenizer))
     text_chunks = [tokenizer.decode(chunk) for chunk in token_chunks]
 
@@ -38,73 +51,92 @@ def create_embeddings_for_text(text, tokenizer):
     return (text_embeddings, average_embedding)
 
 def get_embeddings(text_array, engine):
+    """Fetch embeddings from OpenAI engine.
+    
+    Args:
+        text_array: List of text chunks to be embedded.
+        engine: The OpenAI engine used for embedding.
+        
+    Returns:
+        A list of embeddings.
+    """
     return openai.Engine(id=engine).embeddings(input=text_array)["data"]
 
-# Split a text into smaller chunks of size n, preferably ending at the end of a sentence
 def chunks(text, n, tokenizer):
+    """Split text into smaller chunks.
+    
+    Args:
+        text: The text to be chunked.
+        n: The approximate size for each chunk.
+        tokenizer: The tokenizer used for text preprocessing.
+        
+    Yields:
+        Chunks of tokens from the text.
+    """
     tokens = tokenizer.encode(text)
-    """Yield successive n-sized chunks from text."""
     i = 0
     while i < len(tokens):
-        # Find the nearest end of sentence within a range of 0.5 * n and 1.5 * n tokens
         j = min(i + int(1.5 * n), len(tokens))
         while j > i + int(0.5 * n):
-            # Decode the tokens and check for full stop or newline
             chunk = tokenizer.decode(tokens[i:j])
             if chunk.endswith(".") or chunk.endswith("\n"):
                 break
             j -= 1
-        # If no end of sentence found, use n tokens as the chunk size
         if j == i + int(0.5 * n):
             j = min(i + n, len(tokens))
         yield tokens[i:j]
         i = j
 
-def get_unique_id_for_file_chunk(filename, chunk_index):
-    return str(filename+"-!"+str(chunk_index))
-
-def handle_file_string(file,tokenizer,redis_conn, text_embedding_field,index_name):
+def handle_file_string(file, tokenizer, redis_conn, text_embedding_field, index_name):
+    """Process a file string and upload its embeddings to a Redis database.
+    
+    Args:
+        file: A tuple containing filename and file content as a string.
+        tokenizer: The tokenizer used for text preprocessing.
+        redis_conn: Redis connection object.
+        text_embedding_field: The Redis field where embeddings are stored.
+        index_name: The index name for the Redis database.
+    """
     filename = file[0]
     file_body_string = file[1]
 
-    # Clean up the file string by replacing newlines and double spaces and semi-colons
-    clean_file_body_string = file_body_string.replace("  ", " ").replace("\n", "; ").replace(';',' ')
-    #
-    # Add the filename to the text to embed
-    text_to_embed = "Filename is: {}; {}".format(
-        filename, clean_file_body_string)
+    # Clean up the text
+    clean_file_body_string = file_body_string.replace("  ", " ").replace("\n", "; ").replace(';', ' ')
 
-    # Create embeddings for the text
+    text_to_embed = "Filename is: {}; {}".format(filename, clean_file_body_string)
+
+    # Generate embeddings
     try:
-        text_embeddings, average_embedding = create_embeddings_for_text(
-            text_to_embed, tokenizer)
-        #print("[handle_file_string] Created embedding for {}".format(filename))
+        text_embeddings, average_embedding = create_embeddings_for_text(text_to_embed, tokenizer)
     except Exception as e:
-        print("[handle_file_string] Error creating embedding: {}".format(e))
+        print(f"Error creating embedding: {e}")
 
-    # Get the vectors array of triples: file_chunk_id, embedding, metadata for each embedding
-    # Metadata is a dict with keys: filename, file_chunk_index
+    # Prepare vectors for Redis upload
     vectors = []
     for i, (text_chunk, embedding) in enumerate(text_embeddings):
-        id = get_unique_id_for_file_chunk(filename, i)
-        vectors.append(({'id': id
-                         , "vector": embedding, 'metadata': {"filename": filename
-                                                              , "text_chunk": text_chunk
-                                                              , "file_chunk_index": i}}))
+        id = f"{filename}-!{i}"
+        vectors.append({'id': id, 'vector': embedding, 'metadata': {"filename": filename, "text_chunk": text_chunk, "file_chunk_index": i}})
 
+    # Upload to Redis
     try:
-        load_vectors(redis_conn, vectors,text_embedding_field)
-
+        load_vectors(redis_conn, vectors, text_embedding_field)
     except Exception as e:
-        print(f'Ran into a problem uploading to Redis: {e}')
+        print(f"Ran into a problem uploading to Redis: {e}")
 
-# Make a class to generate batches for insertion
 class BatchGenerator:
-    def __init__(self, batch_size: int = 10) -> None:
+    """Generate batches from a DataFrame."""
+    def __init__(self, batch_size: int = 10):
         self.batch_size = batch_size
 
-    # Makes chunks out of an input DataFrame
     def to_batches(self, df: pd.DataFrame) -> Iterator[pd.DataFrame]:
+        """Split DataFrame into smaller batches.
+        
+        Args:
+            df: The DataFrame to be split.
+            
+        Yields:
+            Smaller DataFrames as batches.
+        """
         splits = self.splits_num(df.shape[0])
         if splits <= 1:
             yield df
@@ -112,8 +144,15 @@ class BatchGenerator:
             for chunk in np.array_split(df, splits):
                 yield chunk
 
-    # Determines how many chunks DataFrame contains
     def splits_num(self, elements: int) -> int:
+        """Calculate the number of splits needed for batching.
+        
+        Args:
+            elements: The total number of elements in the DataFrame.
+            
+        Returns:
+            The number of splits needed.
+        """
         return round(elements / self.batch_size)
 
     __call__ = to_batches
