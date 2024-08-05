@@ -4,7 +4,7 @@ import os
 import numpy as np
 import pandas as pd
 import tiktoken
-import textract
+import fitz  # PyMuPDF
 
 # Local Module Imports
 from database import get_redis_connection, get_redis_results
@@ -68,15 +68,18 @@ def createDatabaseIndex():
         )
         print(f"Index {INDEX_NAME} was created successfully")
 
-# Function to read and index PDF documents
+# Function to read and index PDF documents using PyMuPDF
 def addDocumentsToIndex():
     pdf_files, data_dir = getPDFFiles()
     tokenizer = tiktoken.get_encoding("cl100k_base")
 
     for pdf_file in pdf_files:
         pdf_path = os.path.join(data_dir, pdf_file)
-        text = textract.process(pdf_path, method='pdfminer')
-        handle_file_string((pdf_file, text.decode("utf-8")), tokenizer, redis_client, VECTOR_FIELD_NAME, INDEX_NAME)
+        doc = fitz.open(pdf_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        handle_file_string((pdf_file, text), tokenizer, redis_client, VECTOR_FIELD_NAME, INDEX_NAME)
 
 # Function to query the Redis database and get a GPT-based answer
 def queryRedisDatabase():
