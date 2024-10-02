@@ -1,0 +1,7 @@
+Flask
+numpy
+openai
+pandas
+PyMuPDF
+redis
+tiktoken

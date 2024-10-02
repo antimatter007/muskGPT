@@ -4,8 +4,11 @@ from flask import Flask, render_template, jsonify, request
 # Import additional modules for configuration and interacting with OpenAI
 import config
 import openai
-import aiapi
-import notebook
+import text_transformers  # Import text_transformers instead of aiapi
+
+# Remove unused imports
+# import aiapi
+# import notebook
 
 # Define a custom error handler for 404 (Page Not Found) errors
 def page_not_found(e):
@@ -21,11 +24,9 @@ app.config.from_object(config.config['development'])
 # Register the custom error handler for 404 errors with the Flask application
 app.register_error_handler(404, page_not_found)
 
-
 # Define the route for the root URL of the application
 @app.route('/', methods=['POST', 'GET'])
 def index():
-
     # If the request is a POST request
     if request.method == 'POST':
         # Extract the 'prompt' data from the form in the request
@@ -34,8 +35,8 @@ def index():
         # Initialize a dictionary to hold the response
         res = {}
 
-        # Generate a chat response based on the given prompt using the 'generateChatResponse' function from 'aiapi.py'
-        res['answer'] = aiapi.generateChatResponse(prompt)
+        # Generate a chat response based on the given prompt using the 'queryRedisDatabase' function from 'text_transformers.py'
+        res['answer'] = text_transformers.queryRedisDatabase(prompt)
 
         # Return the generated response as JSON with a 200 OK status
         return jsonify(res), 200
